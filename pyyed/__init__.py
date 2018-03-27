@@ -15,6 +15,9 @@ arrow_types = ["none", "standard", "white_delta", "diamond", "white_diamond", "s
                "crows_foot_many_mandatory", "crows_foot_many_optional", "crows_foot_one",
                "crows_foot_many", "crows_foot_optional"]
 
+config_types = ["com.yworks.entityRelationship.small_entity", "com.yworks.entityRelationship.big_entity",
+                "com.yworks.entityRelationship.relationship"]
+
 
 class Group:
     def __init__(self, group_id, parent_graph, label=None, shape="rectangle",
@@ -116,9 +119,9 @@ class Group:
 
 
 class Node:
-    def __init__(self, node_name, label=None, shape="rectangle", font_family="Dialog",
+    def __init__(self, node_name, label=None, configuration=None, modelName=None, properties=None, shape="rectangle", font_family="Dialog",
                  underlined_text="false", font_style="plain", font_size="12",
-                 shape_fill="#FF0000", transparent="false", edge_color="#000000",
+                 shape_fill="#e8eef7", transparent="false", edge_color="#000000",
                  edge_type="line", edge_width="1.0", height=False, width=False, x=False,
                  y=False):
 
@@ -127,6 +130,23 @@ class Node:
             self.label = node_name
 
         self.node_name = node_name
+
+        # configuration
+        if configuration is None:
+            self.configuration = "default"
+        elif configuration not in config_types:
+            raise RuntimeWarning("configuration %s not recognised" % configuration)
+        else:
+            self.configuration = configuration
+
+        #label configuration
+        if modelName is None:
+            self.modelName = ""
+        else:
+            self.modelName = modelName
+
+        # node properties
+        self.properties = properties
 
         # node shape
         if shape not in node_shapes:
@@ -172,7 +192,8 @@ class Node:
 
         node = ET.Element("node", id=self.node_name)
         data = ET.SubElement(node, "data", key="data_node")
-        shape = ET.SubElement(data, "y:ShapeNode")
+        #shape = ET.SubElement(data, "y:ShapeNode")
+        shape = ET.SubElement(data, "y:GenericNode", configuration=self.configuration)
 
         if self.geom:
             ET.SubElement(shape, "y:Geometry", **self.geom)
@@ -184,13 +205,36 @@ class Node:
         ET.SubElement(shape, "y:BorderStyle", color=self.edge_color, type=self.edge_type,
                       width=self.edge_width)
 
-        label = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
-                              fontSize=self.font_size,
-                              underlinedText=self.underlined_text,
-                              fontStyle=self.font_style)
+        if self.configuration == "com.yworks.entityRelationship.big_entity":
+            label = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
+                                  fontSize=self.font_size,
+                                  underlinedText=self.underlined_text,
+                                  fontStyle=self.font_style, configuration="com.yworks.entityRelationship.label.name",
+                                  modelName="internal", modelPosition="t")
+        else:
+            label = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
+                                  fontSize=self.font_size,
+                                  underlinedText=self.underlined_text,
+                                  fontStyle=self.font_style, modelName=self.modelName)
+
         label.text = self.label
 
-        ET.SubElement(shape, "y:Shape", type=self.shape)
+        if self.properties is not None:
+            if self.configuration == "com.yworks.entityRelationship.big_entity":
+                prop = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
+                                     fontSize=self.font_size,
+                                     underlinedText=self.underlined_text,
+                                     fontStyle=self.font_style,
+                                     configuration="com.yworks.entityRelationship.label.attributes", modelName="custom")
+                prop.text = self.properties
+            else:
+                prop = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
+                                     fontSize=self.font_size,
+                                     underlinedText=self.underlined_text,
+                                     fontStyle=self.font_style, modelName=self.modelNam)
+                prop.text = self.properties
+
+        #ET.SubElement(shape, "y:Shape", type=self.shape)
 
         return node
 
