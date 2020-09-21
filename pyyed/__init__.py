@@ -1,5 +1,6 @@
 import sys
-import xml.etree.cElementTree as ET
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 
 node_shapes = ["rectangle", "rectangle3d", "roundrectangle", "diamond", "ellipse",
                "fatarrow", "fatarrow2", "hexagon", "octagon", "parallelogram",
@@ -8,6 +9,8 @@ node_shapes = ["rectangle", "rectangle3d", "roundrectangle", "diamond", "ellipse
 
 line_types = ["line", "dashed", "dotted", "dashed_dotted"]
 font_styles = ["plain", "bold", "italic", "bolditalic"]
+
+label_alignments = ['left', 'center', 'right']
 
 arrow_types = ["none", "standard", "white_delta", "diamond", "white_diamond", "short",
                "plain", "concave", "convex", "circle", "transparent_circle", "dash",
@@ -18,9 +21,8 @@ arrow_types = ["none", "standard", "white_delta", "diamond", "white_diamond", "s
 config_types = [ "com.yworks.entityRelationship.small_entity",  "com.yworks.entityRelationship.big_entity",
                 "com.yworks.entityRelationship.relationship"]
 
-
 class Group:
-    def __init__(self, group_id, parent_graph, label=None, shape="rectangle",
+    def __init__(self, group_id, parent_graph, label=None, label_alignment="center", shape="rectangle",
                  closed="false", font_family="Dialog", underlined_text="false",
                  font_style="plain", font_size="12", fill="#FFCC00", transparent="false",
                  edge_color="#000000", edge_type="line", edge_width="1.0", height=False,
@@ -32,6 +34,7 @@ class Group:
 
         self.group_id = group_id
         self.nodes = {}
+        self.groups = {}
         self.parent_graph = parent_graph
 
         # node shape
@@ -48,8 +51,13 @@ class Group:
         if font_style not in font_styles:
             raise RuntimeWarning("Font style %s not recognised" % font_style)
 
+        if label_alignment not in label_alignments:
+            raise RuntimeWarning("Label alignment %s not recognised" % label_alignment)
+
         self.font_style = font_style
         self.font_size = font_size
+
+        self.label_alignment = label_alignment
 
         self.fill = fill
         self.transparent = transparent
@@ -79,6 +87,11 @@ class Group:
         self.nodes[node_name] = Node(node_name, **kwargs)
         self.parent_graph.nodes_in_groups.append(node_name)
 
+    def add_group(self, group_id, **kwargs):
+        print("adding group(%s) to: %s" % (group_id, self.group_id))
+        self.groups[group_id] = Group(group_id, self.parent_graph, **kwargs)
+        return self.groups[group_id]
+
     def convert(self):
         node = ET.Element("node", id=self.group_id)
         node.set("yfiles.foldertype", "group")
@@ -101,7 +114,8 @@ class Group:
                               modelPosition="t",
                               fontFamily=self.font_family, fontSize=self.font_size,
                               underlinedText=self.underlined_text,
-                              fontStyle=self.font_style)
+                              fontStyle=self.font_style,
+                              alignment=self.label_alignment)
         label.text = self.label
 
         ET.SubElement(group_node, "y:Shape", type=self.shape)
@@ -114,22 +128,30 @@ class Group:
             n = self.nodes[node_id].convert()
             graph.append(n)
 
+        for group_id in self.groups:
+            n = self.groups[group_id].convert()
+            graph.append(n)
+
         return node
         # ProxyAutoBoundsNode crap just draws bar at top of group
 
 
 class Node:
-    def __init__(self, node_name, label=None, configuration=None, modelName=None, properties=None, shape="rectangle", font_family="Dialog",
+    #def __init__(self, node_name, label=None, label_alignment="center", shape="rectangle", font_family="Dialog",
+    def __init__(self, node_name, label=None, label_alignment="center", configuration=None, modelName=None, properties=None, shape="rectangle", font_family="Dialog",
                  underlined_text="false", font_style="plain", font_size="12",
                  shape_fill="#e8eef7", transparent="false", edge_color="#000000",
                  edge_type="line", edge_width="1.0", height=False, width=False, x=False,
-                 y=False):
+                 y=False, node_type="ShapeNode", UML=False):
 
         self.label = label
         if label is None:
             self.label = node_name
 
         self.node_name = node_name
+
+        self.node_type = node_type
+        self.UML = UML
 
         # configuration
         if configuration is None:
@@ -161,8 +183,13 @@ class Node:
         if font_style not in font_styles:
             raise RuntimeWarning("Font style %s not recognised" % font_style)
 
+        if label_alignment not in label_alignments:
+            raise RuntimeWarning("Label alignment %s not recognised" % label_alignment)
+
         self.font_style = font_style
         self.font_size = font_size
+
+        self.label_alignment = label_alignment
 
         # shape fill
         self.shape_fill = shape_fill
@@ -208,10 +235,13 @@ class Node:
 
     def convert(self):
 
-        node = ET.Element("node", id=self.node_name)
+        node = ET.Element("node", id=str(self.node_name))
         data = ET.SubElement(node, "data", key="data_node")
+        if self.configuration == "default":
+            shape = ET.SubElement(data, "y:" + self.node_type)
         #shape = ET.SubElement(data, "y:ShapeNode")
-        shape = ET.SubElement(data, "y:GenericNode", configuration=self.configuration)
+        else:
+            shape = ET.SubElement(data, "y:GenericNode", configuration=self.configuration)
 
         if self.geom:
             ET.SubElement(shape, "y:Geometry", **self.geom)
@@ -228,40 +258,57 @@ class Node:
                                   fontSize=self.font_size,
                                   underlinedText=self.underlined_text,
                                   fontStyle=self.font_style, configuration="com.yworks.entityRelationship.label.name",
-                                  modelName="internal", modelPosition="t", backgroundColor="#B7C9E3")
+                                  modelName="internal", modelPosition="t", backgroundColor="#B7C9E3",
+                                  alignment=self.label_alignment)
             if self.properties is not None:
                 prop = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
                                      fontSize=self.font_size,
                                      underlinedText=self.underlined_text,
                                      fontStyle=self.font_style,
-                                     configuration="com.yworks.entityRelationship.label.attributes", modelName="custom")
+                                     configuration="com.yworks.entityRelationship.label.attributes", modelName="custom",
+                                     alignment=self.label_alignment)
                 prop.text = self.properties
         elif self.configuration == "com.yworks.entityRelationship.relationship":
             label = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
                                   fontSize=self.font_size,
                                   underlinedText=self.underlined_text,
                                   fontStyle=self.font_style,
-                                  modelName="custom")
+                                  modelName="custom",alignment=self.label_alignment)
         else:
             label = ET.SubElement(shape, "y:NodeLabel", fontFamily=self.font_family,
                                   fontSize=self.font_size,
                                   underlinedText=self.underlined_text,
-                                  fontStyle=self.font_style)
+                                  fontStyle=self.font_style,alignment=self.label_alignment)
 
         label.text = self.label
 
 
         #ET.SubElement(shape, "y:Shape", type=self.shape)
 
+        if self.UML:
+            UML = ET.SubElement(shape, "y:UML")
+
+            attributes = ET.SubElement(UML, "y:AttributeLabel", type=self.shape)
+            attributes.text = self.UML["attributes"]
+
+            methods = ET.SubElement(UML, "y:MethodLabel", type=self.shape)
+            methods.text = self.UML["methods"]
+
+            stereotype = self.UML["stereotype"] if "stereotype" in self.UML else ""
+            UML.set("stereotype", stereotype)
+
         return node
 
 
 class Edge:
     def __init__(self, node1, node2, label="", arrowhead="standard", arrowfoot="none",
-                 color="#000000", line_type="line", width="1.0"):
+                 color="#000000", line_type="line", width="1.0", edge_id=""):
         self.node1 = node1
         self.node2 = node2
-        self.edge_id = "%s_%s" % (node1, node2)
+
+        if not edge_id:
+            edge_id = "%s_%s" % (node1, node2)
+        self.edge_id = str(edge_id)
 
         self.label = label
 
@@ -271,12 +318,12 @@ class Edge:
         self.arrowhead = arrowhead
 
         if arrowfoot not in arrow_types:
-            raise RuntimeWarning("Arrowhead type %s not recognised" % arrowfoot)
+            raise RuntimeWarning("Arrowfoot type %s not recognised" % arrowfoot)
 
         self.arrowfoot = arrowfoot
 
         if line_type not in line_types:
-            raise RuntimeWarning("Edge type %s not recognised" % line_type)
+            raise RuntimeWarning("Line type %s not recognised" % line_type)
 
         self.line_type = line_type
 
@@ -284,7 +331,7 @@ class Edge:
         self.width = width
 
     def convert(self):
-        edge = ET.Element("edge", id=self.edge_id, source=self.node1, target=self.node2)
+        edge = ET.Element("edge", id=str(self.edge_id), source=str(self.node1), target=str(self.node2))
         data = ET.SubElement(edge, "data", key="data_edge")
         pl = ET.SubElement(data, "y:PolyLineEdge")
 
@@ -304,6 +351,7 @@ class Graph:
         self.nodes_in_groups = []
         self.nodes = {}
         self.edges = {}
+        self.num_edges = 0
 
         self.directed = directed
         self.graph_id = graph_id
@@ -351,10 +399,17 @@ class Graph:
 
         self.graphml = graphml
 
-    def write_graph(self, filename):
+    def write_graph(self, filename, pretty_print=False):
         self.construct_graphml()
-        tree = ET.ElementTree(self.graphml)
-        tree.write(filename)
+
+        if pretty_print:
+            raw_str = ET.tostring(self.graphml)
+            pretty_str = minidom.parseString(raw_str).toprettyxml()
+            with open(filename, 'w') as f:
+                f.write(pretty_str)
+        else:
+            tree = ET.ElementTree(self.graphml)
+            tree.write(filename)
 
     def get_graph(self):
         self.construct_graphml()
@@ -385,7 +440,8 @@ class Graph:
         if node2 not in existing_entities:
             self.nodes[node2] = Node(node2)
 
-        edge = Edge(node1, node2, label, arrowhead, arrowfoot, color, line_type, width)
+        self.num_edges += 1
+        edge = Edge(node1, node2, label, arrowhead, arrowfoot, color, line_type, width, edge_id=self.num_edges)
         self.edges[edge.edge_id] = edge
 
     def add_group(self, group_id, **kwargs):

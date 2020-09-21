@@ -4,8 +4,8 @@ from distutils.command.install import install as _install
 
 
 setup(name='pyyed',
-      version='1.0.1',
-      description='A simple Python library to export graphs to the yEd graph editor, with some extra options',
+      version='1.3',
+      description='A simple Python library to export graphs to the yEd graph editor',
 
       author='James Scott-Brown',
 
